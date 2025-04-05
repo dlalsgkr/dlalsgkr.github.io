@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>이민학</title>
+
+  <meta name="description" content="이민학의 개인 홈페이지입니다.">
+  <meta name="author" content="이민학">
+  <meta name="language" content="ko">
+
+  <meta property="og:title" content="이민학">
+  <meta property="og:description" content="문헌정보학을 공부하고 있는 학생입니다. 2005년 서울에서 태어났습니다.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://dlalsg.kr">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Person",
+    "name": "이민학",
+    "alternateName": ["Lee Minhak", "李慜學"],
+    "birthDate": "2005",
+    "birthPlace": {
+      "@type": "Place",
+      "address": {
+        "@type": "PostalAddress",
+        "addressRegion": "서울특별시",
+        "addressCountry": "KR"
+      }
+    },
+    "url": "https://dlalsg.kr",
+    "sameAs": [
+      "https://www.instagram.com/dlalsg.kr"
+    ]
+  }
+  </script>
+
+  <link href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@400;700&display=swap" rel="stylesheet">
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 0 1rem;
+      height: 100vh;
+      font-family: 'Gothic A1', sans-serif;
+      background-color: #f8f8f8;
+      display: flex;
+      flex-direction: column;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .content {
+      text-align: center;
+    }
+
+    .name-block {
+      display: flex;
+      flex-direction: row;
+      align-items: baseline;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .name {
+      margin: 0;
+    }
+
+    .name--primary {
+      font-size: 3rem;
+      font-weight: 700;
+      color: #222;
+    }
+
+    .name--romanized {
+      font-size: 1.5rem;
+      font-weight: 400;
+      color: #666;
+    }
+
+    .name--hanja {
+      font-size: 1.2rem;
+      font-weight: 400;
+      color: #666;
+    }
+
+    .bio {
+      margin-top: 1rem;
+      font-size: 1rem;
+      color: #444;
+      word-break: keep-all;
+      white-space: normal;
+    }
+
+    .bio a {
+      color: #0056b3;
+      text-decoration: underline;
+      font-weight: 500;
+      transition: color 0.3s ease, text-decoration-color 0.3s ease;
+    }
+
+    .bio a:hover {
+      color: #E1306C;
+      text-decoration-color: #E1306C;
+    }
+
+    @media (max-width: 480px) {
+      .name-block {
+        flex-direction: column;
+        align-items: center;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="content">
+
+      <div class="name-block">
+        <h1 class="name name--primary">이민학</h1>
+        <p class="name name--romanized">Lee Minhak</p>
+        <p class="name name--hanja">李慜學</p>
+      </div>
+
+      <p class="bio">문헌정보학을 공부하고 있는 학생입니다.</p>
+      <p class="bio">2005년 대한민국 서울에서 태어났습니다.</p>
+
+      <p class="bio">
+        <a href="https://www.instagram.com/dlalsg.kr" target="_blank" rel="noopener noreferrer">
+          인스타그램 프로필 보기
+        </a>
+      </p>
+    </section>
+  </main>
+</body>
+</html>
