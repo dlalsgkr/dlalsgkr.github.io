@@ -1,0 +1,1055 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Overlay App</title>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --panel-bg: rgba(30, 30, 30, 0.85);
+            --text-color: #e0e0e0;
+            --accent-color: #007bff;
+            --border-color: #333;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow: hidden;
+            display: flex;
+            height: 100vh;
+        }
+
+        /* Main View Area */
+        #view-container {
+            flex-grow: 1;
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #000;
+        }
+
+        #crop-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            /* Will be manipulated via JS for aspect ratio cropping */
+        }
+
+        .media-layer {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            transform-origin: center center;
+        }
+
+        #camera-feed {
+            z-index: 1;
+            transition: all 0.3s ease;
+        }
+
+        #photo-overlay {
+            z-index: 2;
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        /* Grid Overlay */
+        #grid-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 3;
+            pointer-events: none;
+            display: none;
+            width: 100%;
+            height: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+        }
+
+        #grid-overlay.active {
+            display: block;
+        }
+
+        .grid-line-h {
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            background-color: rgba(255, 255, 255, 0.5);
+        }
+
+        .grid-line-v {
+            position: absolute;
+            height: 100%;
+            width: 1px;
+            background-color: rgba(255, 255, 255, 0.5);
+        }
+
+        /* Calibration Layer */
+        #calibration-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            z-index: 50;
+            display: none;
+            cursor: crosshair;
+            background-color: rgba(0, 0, 0, 0.5);
+        }
+
+        #calibration-layer.active {
+            display: block;
+        }
+
+        #calibration-box {
+            position: absolute;
+            border: 2px dashed #00ff00;
+            background-color: rgba(0, 255, 0, 0.1);
+            display: none;
+            pointer-events: none;
+        }
+
+        /* Control Panel */
+        #control-panel {
+            width: 320px;
+            background-color: var(--panel-bg);
+            backdrop-filter: blur(10px);
+            border-left: 1px solid var(--border-color);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            overflow-y: auto;
+            z-index: 10;
+        }
+
+        h2 {
+            font-size: 1.2rem;
+            margin-bottom: 10px;
+            text-align: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 10px;
+        }
+
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .control-group label {
+            font-size: 0.9rem;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        select,
+        input[type="file"],
+        button {
+            width: 100%;
+            padding: 8px;
+            background-color: #2a2a2a;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            cursor: pointer;
+        }
+
+        button {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background-color 0.2s;
+            margin-top: 5px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        .toggle-btn {
+            background-color: #444;
+        }
+
+        .toggle-btn.active {
+            background-color: #28a745;
+        }
+
+        .reset-btn {
+            background-color: #dc3545;
+            font-size: 0.8rem;
+            padding: 4px;
+            width: auto;
+            align-self: flex-end;
+        }
+
+        .reset-btn:hover {
+            background-color: #c82333;
+        }
+
+        #control-panel::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        #control-panel::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        #control-panel::-webkit-scrollbar-thumb {
+            background: #555;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="view-container">
+        <!-- 3:2 Cropped window -->
+        <div id="crop-container">
+            <video id="camera-feed" class="media-layer" autoplay playsinline></video>
+            <img id="photo-overlay" class="media-layer" src="" style="display: none;" alt="Overlay">
+
+            <div id="grid-overlay">
+                <div class="grid-line-h" style="top: 33.33%;"></div>
+                <div class="grid-line-h" style="top: 66.66%;"></div>
+                <div class="grid-line-v" style="left: 33.33%;"></div>
+                <div class="grid-line-v" style="left: 66.66%;"></div>
+                <!-- Center Crosshair -->
+                <div class="grid-line-h" style="top: 50%; background-color: rgba(255,0,0,0.5);"></div>
+                <div class="grid-line-v" style="left: 50%; background-color: rgba(255,0,0,0.5);"></div>
+            </div>
+            <!-- Calibration drawing layer -->
+            <div id="calibration-layer">
+                <div id="calibration-box"></div>
+            </div>
+        </div>
+
+    </div>
+
+    <div id="control-panel">
+        <h2>Camera Overlay</h2>
+
+        <div class="control-group">
+            <label for="camera-select">1. 카메라 선택</label>
+            <select id="camera-select">
+                <option value="">카메라를 찾는 중...</option>
+            </select>
+        </div>
+
+        <div class="control-group">
+            <label for="file-upload">2. 겹칠 사진 불러오기</label>
+            <input type="file" id="file-upload" accept="image/*">
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 5px 0;">
+
+        <div class="control-group">
+            <button id="btn-5dmark2" class="toggle-btn"
+                style="background-color: #007bff; color: white; margin-bottom: 5px;">Canon EOS 5D Mark II 자동 보정</button>
+            <button id="calibrate-btn" class="toggle-btn" style="background-color: #ff9800; color: #000;">영역 지정
+                시작</button>
+            <small style="font-size:0.75rem; color:#aaa;">마우스 드래그로 대략적인 영역을 그리고 미세조정 하세요.</small>
+
+            <div id="fine-tune-panel"
+                style="display: none; background: #222; padding: 10px; border-radius: 5px; margin-top: 10px;">
+                <p style="font-size: 0.85rem; margin-bottom: 8px;">1. 테두리 미세조정 (1px)</p>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 5px; text-align: center;">
+                    <div>
+                        <span style="font-size:0.8rem;">상단 (Top)</span><br>
+                        <button class="nudge-btn" data-edge="top" data-dir="-1"
+                            style="width:45%; display:inline-block; padding: 4px;">↑</button>
+                        <button class="nudge-btn" data-edge="top" data-dir="1"
+                            style="width:45%; display:inline-block; padding: 4px;">↓</button>
+                    </div>
+                    <div>
+                        <span style="font-size:0.8rem;">하단 (Bottom)</span><br>
+                        <button class="nudge-btn" data-edge="bottom" data-dir="-1"
+                            style="width:45%; display:inline-block; padding: 4px;">↑</button>
+                        <button class="nudge-btn" data-edge="bottom" data-dir="1"
+                            style="width:45%; display:inline-block; padding: 4px;">↓</button>
+                    </div>
+                    <div>
+                        <span style="font-size:0.8rem;">좌측 (Left)</span><br>
+                        <button class="nudge-btn" data-edge="left" data-dir="-1"
+                            style="width:45%; display:inline-block; padding: 4px;">←</button>
+                        <button class="nudge-btn" data-edge="left" data-dir="1"
+                            style="width:45%; display:inline-block; padding: 4px;">→</button>
+                    </div>
+                    <div>
+                        <span style="font-size:0.8rem;">우측 (Right)</span><br>
+                        <button class="nudge-btn" data-edge="right" data-dir="-1"
+                            style="width:45%; display:inline-block; padding: 4px;">←</button>
+                        <button class="nudge-btn" data-edge="right" data-dir="1"
+                            style="width:45%; display:inline-block; padding: 4px;">→</button>
+                    </div>
+                </div>
+
+
+                <p style="font-size: 0.85rem; margin-top: 15px; margin-bottom: 5px; color:#ff9800;">현재 원본 좌표</p>
+                <input type="text" id="coord-output" readonly
+                    style="width: 100%; padding: 5px; font-size: 0.8rem; background: #111; color: #0f0; text-align: center;"
+                    value="X: 0, Y: 0, W: 0, H: 0">
+
+                <button id="apply-cal-btn" style="background-color: #28a745; margin-top:15px; padding: 10px;">적용 완료 및
+                    크롭</button>
+            </div>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 5px 0;">
+
+        <div class="control-group">
+            <label for="opacity-slider">투명도 (Opacity) <span id="opacity-val">50%</span></label>
+            <input type="range" id="opacity-slider" min="0" max="1" step="0.01" value="0.5">
+        </div>
+
+        <div class="control-group">
+            <button id="blend-mode-btn" class="toggle-btn">차이(Difference) 모드 켜기</button>
+            <small style="font-size:0.75rem; color:#aaa;">완벽히 겹치면 검은색이 됩니다.</small>
+            <button id="zoom-toggle-btn" class="toggle-btn" style="margin-top: 5px;">🔍 2.5배 확대 켜기/끄기</button>
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 5px 0;">
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <span style="font-size: 0.9rem; font-weight: bold;">사진 미세 조정</span>
+            <button id="reset-transform-btn" class="reset-btn">초기화</button>
+        </div>
+
+        <div class="control-group">
+            <label for="scale-slider">크기 (Scale) <span id="scale-val">100%</span></label>
+            <input type="range" id="scale-slider" min="0.1" max="2" step="0.01" value="1">
+        </div>
+
+        <div class="control-group">
+            <label for="pan-x-slider">좌우 이동 (Pan X) <span id="pan-x-val">0px</span></label>
+            <input type="range" id="pan-x-slider" min="-500" max="500" step="1" value="0">
+        </div>
+
+        <div class="control-group">
+            <label for="pan-y-slider">상하 이동 (Pan Y) <span id="pan-y-val">0px</span></label>
+            <input type="range" id="pan-y-slider" min="-500" max="500" step="1" value="0">
+        </div>
+
+        <div class="control-group">
+            <label for="rotate-slider">회전 (Rotate) <span id="rotate-val">0°</span></label>
+            <input type="range" id="rotate-slider" min="-180" max="180" step="0.5" value="0">
+        </div>
+
+        <hr style="border: 0; border-top: 1px solid var(--border-color); margin: 5px 0;">
+
+        <div class="control-group">
+            <button id="grid-btn" class="toggle-btn">격자선/십자선 켜기</button>
+        </div>
+
+        <div class="control-group">
+            <button id="capture-btn">현재 화면 캡처 저장</button>
+        </div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const videoElement = document.getElementById('camera-feed');
+        const overlayElement = document.getElementById('photo-overlay');
+        const cameraSelect = document.getElementById('camera-select');
+        const fileUpload = document.getElementById('file-upload');
+        const opacitySlider = document.getElementById('opacity-slider');
+        const opacityVal = document.getElementById('opacity-val');
+        const blendModeBtn = document.getElementById('blend-mode-btn');
+        const scaleSlider = document.getElementById('scale-slider');
+        const scaleVal = document.getElementById('scale-val');
+        const panXSlider = document.getElementById('pan-x-slider');
+        const panXVal = document.getElementById('pan-x-val');
+        const panYSlider = document.getElementById('pan-y-slider');
+        const panYVal = document.getElementById('pan-y-val');
+        const rotateSlider = document.getElementById('rotate-slider');
+        const rotateVal = document.getElementById('rotate-val');
+        const resetTransformBtn = document.getElementById('reset-transform-btn');
+        const gridBtn = document.getElementById('grid-btn');
+        const gridOverlay = document.getElementById('grid-overlay');
+        const captureBtn = document.getElementById('capture-btn');
+        const viewContainer = document.getElementById('view-container');
+        const cropContainer = document.getElementById('crop-container');
+
+        const calibrateBtn = document.getElementById('calibrate-btn');
+        const btn5dmark2 = document.getElementById('btn-5dmark2');
+        const calibrationLayer = document.getElementById('calibration-layer');
+        const calibrationBox = document.getElementById('calibration-box');
+        const fineTunePanel = document.getElementById('fine-tune-panel');
+        const coordOutput = document.getElementById('coord-output');
+        const zoomToggleBtn = document.getElementById('zoom-toggle-btn');
+        const applyCalBtn = document.getElementById('apply-cal-btn');
+        const nudgeBtns = document.querySelectorAll('.nudge-btn');
+
+        // State variables
+        let isDifferenceMode = false;
+        let transformState = { scale: 1, x: 0, y: 0, rotate: 0 };
+        let currentStream = null;
+
+        let isCalibrating = false;
+        let isZoomed = false;
+        let calStartX, calStartY;
+        let currentBox = { left: 0, top: 0, width: 0, height: 0 };
+
+        // Track the current crop so screenshots work
+        let currentCropData = null; // { sX, sY, sW, sH }
+
+        // Initialize App
+        async function init() {
+            await getCameras();
+            setupEventListeners();
+
+            // Load saved calibration if any
+            videoElement.addEventListener('loadedmetadata', () => {
+                const saved = localStorage.getItem('savedCalibration');
+                if (saved) {
+                    try {
+                        const data = JSON.parse(saved);
+                        applyDirectCalibration(data.sX, data.sY, data.sW, data.sH);
+                    } catch (e) { }
+                }
+            }, { once: true });
+        }
+
+        // Camera functions
+        async function getCameras() {
+            try {
+                await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+                cameraSelect.innerHTML = '';
+                if (videoDevices.length === 0) {
+                    cameraSelect.innerHTML = '<option value="">카메라를 찾을 수 없습니다.</option>';
+                    return;
+                }
+
+                videoDevices.forEach((device, index) => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `Camera ${index + 1}`;
+                    cameraSelect.appendChild(option);
+                });
+
+                startCamera(videoDevices[0].deviceId);
+            } catch (err) {
+                console.error('Error accessing media devices.', err);
+                cameraSelect.innerHTML = '<option value="">카메라 권한이 없습니다.</option>';
+                alert('카메라 접근 권한이 필요합니다.');
+            }
+        }
+
+        async function startCamera(deviceId) {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+
+            const constraints = {
+                video: {
+                    deviceId: deviceId ? { exact: deviceId } : undefined,
+                    width: { ideal: 640 },
+                    height: { ideal: 480 }
+                }
+            };
+
+            try {
+                currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                videoElement.srcObject = currentStream;
+            } catch (err) {
+                console.error('Error starting camera: ', err);
+                alert('선택한 카메라를 시작할 수 없습니다.');
+            }
+        }
+
+        // Apply Transform to photo overlay
+        function applyTransform() {
+            const { scale, x, y, rotate } = transformState;
+            overlayElement.style.transform = `translate(${x}px, ${y}px) scale(${scale}) rotate(${rotate}deg)`;
+        }
+
+        function renderBoxAndUpdateCoords() {
+            calibrationBox.style.left = currentBox.left + 'px';
+            calibrationBox.style.top = currentBox.top + 'px';
+            calibrationBox.style.width = currentBox.width + 'px';
+            calibrationBox.style.height = currentBox.height + 'px';
+
+            if (!videoElement.videoWidth) return;
+            const scale = isZoomed ? 2.5 : 1;
+            const rect = calibrationLayer.getBoundingClientRect();
+            const layerWidth = rect.width / scale;
+            const layerHeight = rect.height / scale;
+
+            const videoRatio = videoElement.videoWidth / videoElement.videoHeight;
+            const containerRatio = layerWidth / layerHeight;
+
+            let actualWidth, actualHeight, offsetX = 0, offsetY = 0;
+            if (containerRatio > videoRatio) {
+                actualHeight = layerHeight;
+                actualWidth = actualHeight * videoRatio;
+                offsetX = (layerWidth - actualWidth) / 2;
+            } else {
+                actualWidth = layerWidth;
+                actualHeight = actualWidth / videoRatio;
+                offsetY = (layerHeight - actualHeight) / 2;
+            }
+
+            const relLeft = (currentBox.left - offsetX) / actualWidth;
+            const relTop = (currentBox.top - offsetY) / actualHeight;
+            const relWidth = currentBox.width / actualWidth;
+            const relHeight = currentBox.height / actualHeight;
+
+            const vX = Math.round(relLeft * videoElement.videoWidth);
+            const vY = Math.round(relTop * videoElement.videoHeight);
+            const vW = Math.round(relWidth * videoElement.videoWidth);
+            const vH = Math.round(relHeight * videoElement.videoHeight);
+
+            coordOutput.value = `X: ${vX}, Y: ${vY}, W: ${vW}, H: ${vH}`;
+        }
+
+        // Event Listeners setup
+        function setupEventListeners() {
+            cameraSelect.addEventListener('change', (e) => startCamera(e.target.value));
+
+            fileUpload.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (event) => {
+                        overlayElement.src = event.target.result;
+                        overlayElement.style.display = 'block';
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            // Opacity
+            opacitySlider.addEventListener('input', (e) => {
+                const val = e.target.value;
+                overlayElement.style.opacity = val;
+                opacityVal.innerText = Math.round(val * 100) + '%';
+            });
+
+            // Blend Mode
+            let preDiffOpacity = 0.5; // To restore opacity after difference mode
+            blendModeBtn.addEventListener('click', () => {
+                isDifferenceMode = !isDifferenceMode;
+                if (isDifferenceMode) {
+                    overlayElement.style.mixBlendMode = 'difference';
+                    blendModeBtn.classList.add('active');
+                    blendModeBtn.innerText = '차이(Difference) 모드 끄기';
+
+                    // 차이 모드가 완벽하게 작동하려면 투명도가 100%여야 하고 색상이 없어야 함
+                    preDiffOpacity = opacitySlider.value;
+                    opacitySlider.value = 1;
+                    overlayElement.style.opacity = 1;
+                    opacityVal.innerText = '100%';
+
+                    videoElement.style.filter = 'grayscale(100%)';
+                    overlayElement.style.filter = 'grayscale(100%)';
+                } else {
+                    overlayElement.style.mixBlendMode = 'normal';
+                    blendModeBtn.classList.remove('active');
+                    blendModeBtn.innerText = '차이(Difference) 모드 켜기';
+
+                    // 원래 투명도와 색상 복구
+                    opacitySlider.value = preDiffOpacity;
+                    overlayElement.style.opacity = preDiffOpacity;
+                    opacityVal.innerText = Math.round(preDiffOpacity * 100) + '%';
+
+                    videoElement.style.filter = 'none';
+                    overlayElement.style.filter = 'none';
+                }
+            });
+
+            // Transform Sliders
+            scaleSlider.addEventListener('input', (e) => {
+                transformState.scale = parseFloat(e.target.value);
+                scaleVal.innerText = Math.round(transformState.scale * 100) + '%';
+                applyTransform();
+            });
+
+            panXSlider.addEventListener('input', (e) => {
+                transformState.x = parseInt(e.target.value);
+                panXVal.innerText = transformState.x + 'px';
+                applyTransform();
+            });
+
+            panYSlider.addEventListener('input', (e) => {
+                transformState.y = parseInt(e.target.value);
+                panYVal.innerText = transformState.y + 'px';
+                applyTransform();
+            });
+
+            rotateSlider.addEventListener('input', (e) => {
+                transformState.rotate = parseFloat(e.target.value);
+                rotateVal.innerText = transformState.rotate + '°';
+                applyTransform();
+            });
+
+            // Reset Transform
+            resetTransformBtn.addEventListener('click', () => {
+                transformState = { scale: 1, x: 0, y: 0, rotate: 0 };
+                scaleSlider.value = 1; scaleVal.innerText = '100%';
+                panXSlider.value = 0; panXVal.innerText = '0px';
+                panYSlider.value = 0; panYVal.innerText = '0px';
+                rotateSlider.value = 0; rotateVal.innerText = '0°';
+                applyTransform();
+            });
+
+            // Grid Toggle
+            gridBtn.addEventListener('click', () => {
+                gridOverlay.classList.toggle('active');
+                if (gridOverlay.classList.contains('active')) {
+                    gridBtn.classList.add('active');
+                } else {
+                    gridBtn.classList.remove('active');
+                }
+            });
+
+            // 5D Mark II Preset Logic
+            btn5dmark2.addEventListener('click', () => {
+                // X: 36, Y: 24, W: 568, H: 387
+                applyDirectCalibration(36, 24, 568, 387);
+
+                // If calibrating, cancel it
+                if (isCalibrating) {
+                    isCalibrating = false;
+                    calibrationLayer.classList.remove('active');
+                    calibrationBox.style.display = 'none';
+                    fineTunePanel.style.display = 'none';
+                    calibrateBtn.innerText = '영역 지정 다시 시작';
+                    calibrateBtn.style.backgroundColor = '#ff9800';
+                    calibrateBtn.style.color = '#000';
+                    if (isZoomed) zoomToggleBtn.click();
+                }
+            });
+
+            // Calibration UI Logic
+            calibrateBtn.addEventListener('click', () => {
+                isCalibrating = !isCalibrating;
+                if (isCalibrating) {
+                    calibrationLayer.classList.add('active');
+                    calibrateBtn.innerText = '취소';
+                    calibrateBtn.style.backgroundColor = '#dc3545';
+                    calibrateBtn.style.color = '#fff';
+                    fineTunePanel.style.display = 'block';
+
+                    // Reset crop container to view raw video for drawing
+                    cropContainer.style.aspectRatio = '';
+                    cropContainer.style.width = '100%';
+                    cropContainer.style.height = '100%';
+                    cropContainer.style.maxWidth = '100%';
+                    cropContainer.style.maxHeight = '100%';
+                    videoElement.style.width = '100%';
+                    videoElement.style.height = '100%';
+                    videoElement.style.left = '0';
+                    videoElement.style.top = '0';
+                    videoElement.style.objectFit = 'contain';
+
+                    // Add default box
+                    const rect = calibrationLayer.getBoundingClientRect();
+                    currentBox = { left: rect.width * 0.1, top: rect.height * 0.1, width: rect.width * 0.8, height: rect.height * 0.8 };
+                    calibrationBox.style.display = 'block';
+                    renderBoxAndUpdateCoords();
+
+                    currentCropData = null; // Reset crop data
+                } else {
+                    // Cancel calibration
+                    isCalibrating = false;
+                    calibrationLayer.classList.remove('active');
+                    calibrationBox.style.display = 'none';
+                    fineTunePanel.style.display = 'none';
+                    calibrateBtn.innerText = '영역 지정 다시 시작';
+                    calibrateBtn.style.backgroundColor = '#ff9800';
+                    calibrateBtn.style.color = '#000';
+                    if (isZoomed) zoomToggleBtn.click();
+                }
+            });
+
+            zoomToggleBtn.addEventListener('click', () => {
+                isZoomed = !isZoomed;
+                if (isZoomed) {
+                    zoomToggleBtn.innerText = '🔍 원래 크기로 복구';
+                    zoomToggleBtn.classList.add('active');
+                    viewContainer.style.overflow = 'auto';
+                    cropContainer.style.transform = 'scale(2.5)';
+                    cropContainer.style.transformOrigin = 'top left';
+                    // Scroll to center initially
+                    viewContainer.scrollTop = (cropContainer.scrollHeight - viewContainer.clientHeight) / 2;
+                    viewContainer.scrollLeft = (cropContainer.scrollWidth - viewContainer.clientWidth) / 2;
+                } else {
+                    zoomToggleBtn.innerText = '🔍 2.5배 확대 켜기/끄기';
+                    zoomToggleBtn.classList.remove('active');
+                    viewContainer.style.overflow = 'hidden';
+                    cropContainer.style.transform = 'none';
+                }
+            });
+
+            nudgeBtns.forEach(btn => {
+                btn.addEventListener('click', () => {
+                    if (!isCalibrating) return;
+                    const edge = btn.getAttribute('data-edge');
+                    const dir = parseInt(btn.getAttribute('data-dir'));
+                    // Ensure the nudge is physically 1 DOM pixel at scale=1
+                    const amount = dir;
+
+                    if (edge === 'top') {
+                        currentBox.top += amount;
+                        currentBox.height -= amount;
+                    } else if (edge === 'bottom') {
+                        currentBox.height += amount;
+                    } else if (edge === 'left') {
+                        currentBox.left += amount;
+                        currentBox.width -= amount;
+                    } else if (edge === 'right') {
+                        currentBox.width += amount;
+                    }
+                    renderBoxAndUpdateCoords();
+                });
+            });
+
+            applyCalBtn.addEventListener('click', () => {
+                if (!isCalibrating) return;
+
+                // 확대된 상태라면 원본 크기로 복구하여 좌표 계산을 정확하게 맞춤
+                if (isZoomed) {
+                    zoomToggleBtn.click();
+                }
+
+                const rect = calibrationLayer.getBoundingClientRect();
+                applyCalibration(currentBox.left, currentBox.top, currentBox.width, currentBox.height, rect.width, rect.height);
+
+                isCalibrating = false;
+                calibrationLayer.classList.remove('active');
+                calibrationBox.style.display = 'none';
+                fineTunePanel.style.display = 'none';
+                calibrateBtn.innerText = '영역 지정 다시 시작';
+                calibrateBtn.style.backgroundColor = '#ff9800';
+                calibrateBtn.style.color = '#000';
+            });
+
+            calibrationLayer.addEventListener('mousedown', (e) => {
+                if (isZoomed) return; // Don't draw if zoomed, let user scroll
+                const scale = isZoomed ? 2.5 : 1;
+                const rect = calibrationLayer.getBoundingClientRect();
+                calStartX = (e.clientX - rect.left) / scale;
+                calStartY = (e.clientY - rect.top) / scale;
+                currentBox.left = calStartX;
+                currentBox.top = calStartY;
+                currentBox.width = 0;
+                currentBox.height = 0;
+                renderBoxAndUpdateCoords();
+            });
+
+            calibrationLayer.addEventListener('mousemove', (e) => {
+                if (isZoomed || e.buttons !== 1) return;
+
+                const scale = isZoomed ? 2.5 : 1;
+                const rect = calibrationLayer.getBoundingClientRect();
+                const currentX = (e.clientX - rect.left) / scale;
+                const currentY = (e.clientY - rect.top) / scale;
+
+                currentBox.left = Math.min(calStartX, currentX);
+                currentBox.top = Math.min(calStartY, currentY);
+                currentBox.width = Math.abs(currentX - calStartX);
+                currentBox.height = Math.abs(currentY - calStartY);
+                renderBoxAndUpdateCoords();
+            });
+
+            // Screenshot Capture
+            captureBtn.addEventListener('click', () => {
+                takeScreenshot();
+            });
+
+            // Mouse Drag & Wheel Zoom for Crop Container
+            let isDraggingPhoto = false;
+            let startPhotoX, startPhotoY;
+            let initialPanX, initialPanY;
+
+            cropContainer.addEventListener('mousedown', (e) => {
+                if (isCalibrating) return;
+                isDraggingPhoto = true;
+                startPhotoX = e.clientX;
+                startPhotoY = e.clientY;
+                initialPanX = transformState.x;
+                initialPanY = transformState.y;
+                cropContainer.style.cursor = 'grabbing';
+            });
+
+            window.addEventListener('mousemove', (e) => {
+                if (!isDraggingPhoto) return;
+                const dx = e.clientX - startPhotoX;
+                const dy = e.clientY - startPhotoY;
+
+                transformState.x = initialPanX + dx;
+                transformState.y = initialPanY + dy;
+
+                panXSlider.value = transformState.x;
+                panXVal.innerText = Math.round(transformState.x) + 'px';
+                panYSlider.value = transformState.y;
+                panYVal.innerText = Math.round(transformState.y) + 'px';
+
+                applyTransform();
+            });
+
+            window.addEventListener('mouseup', () => {
+                if (isDraggingPhoto) {
+                    isDraggingPhoto = false;
+                    cropContainer.style.cursor = 'default';
+                }
+            });
+
+            cropContainer.addEventListener('wheel', (e) => {
+                if (isCalibrating) return;
+                e.preventDefault();
+                const zoomSensitivity = 0.002;
+                let newScale = transformState.scale - (e.deltaY * zoomSensitivity);
+
+                newScale = Math.max(0.1, Math.min(2, newScale));
+
+                transformState.scale = newScale;
+                scaleSlider.value = newScale;
+                scaleVal.innerText = Math.round(newScale * 100) + '%';
+
+                applyTransform();
+            }, { passive: false });
+
+            window.addEventListener('resize', () => {
+                if (!isCalibrating && currentCropData) {
+                    const viewWidth = viewContainer.clientWidth;
+                    const viewHeight = viewContainer.clientHeight;
+                    const viewRatio = viewWidth / viewHeight;
+                    const targetRatio = 3 / 2;
+                    let cropWidth, cropHeight;
+                    if (viewRatio > targetRatio) {
+                        cropHeight = viewHeight;
+                        cropWidth = cropHeight * targetRatio;
+                    } else {
+                        cropWidth = viewWidth;
+                        cropHeight = cropWidth / targetRatio;
+                    }
+                    cropContainer.style.width = cropWidth + 'px';
+                    cropContainer.style.height = cropHeight + 'px';
+                }
+            });
+        }
+
+        function applyCalibration(boxLeft, boxTop, boxWidth, boxHeight, layerWidth, layerHeight) {
+            if (!videoElement.videoWidth) return;
+
+            // Calculate where the raw video is rendered by object-fit: contain
+            const videoRatio = videoElement.videoWidth / videoElement.videoHeight;
+            const containerRatio = layerWidth / layerHeight;
+
+            let actualWidth, actualHeight, offsetX = 0, offsetY = 0;
+
+            if (containerRatio > videoRatio) {
+                actualHeight = layerHeight;
+                actualWidth = actualHeight * videoRatio;
+                offsetX = (layerWidth - actualWidth) / 2;
+            } else {
+                actualWidth = layerWidth;
+                actualHeight = actualWidth / videoRatio;
+                offsetY = (layerHeight - actualHeight) / 2;
+            }
+
+            // Convert to relative coordinates of the RAW VIDEO pixels
+            const relLeft = (boxLeft - offsetX) / actualWidth;
+            const relTop = (boxTop - offsetY) / actualHeight;
+            const relWidth = boxWidth / actualWidth;
+            const relHeight = boxHeight / actualHeight;
+
+            // Save crop data for screenshot
+            currentCropData = {
+                sX: Math.max(0, relLeft * videoElement.videoWidth),
+                sY: Math.max(0, relTop * videoElement.videoHeight),
+                sW: Math.min(videoElement.videoWidth, relWidth * videoElement.videoWidth),
+                sH: Math.min(videoElement.videoHeight, relHeight * videoElement.videoHeight)
+            };
+
+            // Save to localStorage
+            localStorage.setItem('savedCalibration', JSON.stringify(currentCropData));
+
+            // Force crop container to exactly 3:2 aspect ratio, strictly fitting inside viewContainer
+            const viewWidth = viewContainer.clientWidth;
+            const viewHeight = viewContainer.clientHeight;
+            const viewRatio = viewWidth / viewHeight;
+            const targetRatio = 3 / 2;
+
+            let cropWidth, cropHeight;
+            if (viewRatio > targetRatio) {
+                cropHeight = viewHeight;
+                cropWidth = cropHeight * targetRatio;
+            } else {
+                cropWidth = viewWidth;
+                cropHeight = cropWidth / targetRatio;
+            }
+
+            cropContainer.style.aspectRatio = '';
+            cropContainer.style.width = cropWidth + 'px';
+            cropContainer.style.height = cropHeight + 'px';
+            cropContainer.style.maxWidth = 'none';
+            cropContainer.style.maxHeight = 'none';
+
+            // Stretch and position the video so the drawn box perfectly fills the 3:2 container
+            const scaleX = 1 / relWidth;
+            const scaleY = 1 / relHeight;
+
+            videoElement.style.width = (scaleX * 100) + '%';
+            videoElement.style.height = (scaleY * 100) + '%';
+            videoElement.style.left = (-relLeft * scaleX * 100) + '%';
+            videoElement.style.top = (-relTop * scaleY * 100) + '%';
+            videoElement.style.objectFit = 'fill'; // STRETCHES to fix distortion!
+        }
+
+        function applyDirectCalibration(vX, vY, vW, vH) {
+            if (!videoElement.videoWidth) return;
+
+            const relLeft = vX / videoElement.videoWidth;
+            const relTop = vY / videoElement.videoHeight;
+            const relWidth = vW / videoElement.videoWidth;
+            const relHeight = vH / videoElement.videoHeight;
+
+            currentCropData = { sX: vX, sY: vY, sW: vW, sH: vH };
+            localStorage.setItem('savedCalibration', JSON.stringify(currentCropData));
+
+            const viewWidth = viewContainer.clientWidth;
+            const viewHeight = viewContainer.clientHeight;
+            const viewRatio = viewWidth / viewHeight;
+            const targetRatio = 3 / 2;
+
+            let cropWidth, cropHeight;
+            if (viewRatio > targetRatio) {
+                cropHeight = viewHeight;
+                cropWidth = cropHeight * targetRatio;
+            } else {
+                cropWidth = viewWidth;
+                cropHeight = cropWidth / targetRatio;
+            }
+
+            cropContainer.style.aspectRatio = '';
+            cropContainer.style.width = cropWidth + 'px';
+            cropContainer.style.height = cropHeight + 'px';
+            cropContainer.style.maxWidth = 'none';
+            cropContainer.style.maxHeight = 'none';
+
+            const scaleX = 1 / relWidth;
+            const scaleY = 1 / relHeight;
+
+            videoElement.style.width = (scaleX * 100) + '%';
+            videoElement.style.height = (scaleY * 100) + '%';
+            videoElement.style.left = (-relLeft * scaleX * 100) + '%';
+            videoElement.style.top = (-relTop * scaleY * 100) + '%';
+            videoElement.style.objectFit = 'fill';
+        }
+
+        // Screenshot functionality
+        function takeScreenshot() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            if (isDifferenceMode) {
+                ctx.filter = 'grayscale(100%)';
+            }
+
+            if (currentCropData) {
+                // High-res 3:2 output
+                canvas.width = 1500;
+                canvas.height = 1000;
+                ctx.drawImage(videoElement,
+                    currentCropData.sX, currentCropData.sY, currentCropData.sW, currentCropData.sH,
+                    0, 0, canvas.width, canvas.height);
+            } else {
+                // Raw output
+                canvas.width = videoElement.videoWidth;
+                canvas.height = videoElement.videoHeight;
+                ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+            }
+
+            // Draw overlay image
+            if (overlayElement.src && overlayElement.style.display !== 'none' && overlayElement.style.opacity > 0) {
+                const img = new Image();
+                img.crossOrigin = "Anonymous";
+                img.src = overlayElement.src;
+                img.onload = () => {
+                    ctx.save();
+                    ctx.globalAlpha = overlayElement.style.opacity;
+                    if (isDifferenceMode) {
+                        ctx.globalCompositeOperation = 'difference';
+                    }
+
+                    const centerX = canvas.width / 2;
+                    const centerY = canvas.height / 2;
+
+                    const domWidth = cropContainer.clientWidth;
+                    const scaleRatio = canvas.width / domWidth;
+
+                    ctx.translate(centerX + (transformState.x * scaleRatio), centerY + (transformState.y * scaleRatio));
+                    ctx.rotate(transformState.rotate * Math.PI / 180);
+                    ctx.scale(transformState.scale, transformState.scale);
+
+                    // Replicate object-fit: contain math for the canvas
+                    const canvasRatio = canvas.width / canvas.height;
+                    const imgRatio = img.width / img.height;
+                    let drawWidth, drawHeight;
+
+                    if (canvasRatio > imgRatio) {
+                        drawHeight = canvas.height;
+                        drawWidth = drawHeight * imgRatio;
+                    } else {
+                        drawWidth = canvas.width;
+                        drawHeight = drawWidth / imgRatio;
+                    }
+
+                    ctx.drawImage(img, -drawWidth / 2, -drawHeight / 2, drawWidth, drawHeight);
+
+                    ctx.restore();
+                    downloadCanvas(canvas);
+                };
+            } else {
+                downloadCanvas(canvas);
+            }
+        }
+
+        function downloadCanvas(canvas) {
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+            const a = document.createElement('a');
+            a.href = dataUrl;
+            a.download = `capture_${new Date().getTime()}.jpg`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        // Run
+        window.addEventListener('DOMContentLoaded', init);
+
+    </script>
+</body>
+
+</html>
